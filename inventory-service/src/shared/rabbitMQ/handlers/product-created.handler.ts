@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 interface ProductCreatedPayload {
   eventId: string;
   productId: string;
-  availableStock: number;
+  initialStock: number;
   createdAt: string;
 }
 
