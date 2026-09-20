@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # order-db:
+  #   image: postgres:16
+  #   environment:
+  #     POSTGRES_USER: order_user
+  #     POSTGRES_PASSWORD: order_pass
+  #     POSTGRES_DB: order_db
+  #   ports:
+  #     - "5433:5432"
+  #   volumes:
+  #     - order_db_data:/var/lib/postgresql/data
+
+  inventory-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: inventory_user
+      POSTGRES_PASSWORD: inventory_pass
+      POSTGRES_DB: inventory_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - inventory_db_data:/var/lib/postgresql/data
+
+  # payment-db:
+  #   image: postgres:16
+  #   environment:
+  #     POSTGRES_USER: payment_user
+  #     POSTGRES_PASSWORD: payment_pass
+  #     POSTGRES_DB: payment_db
+  #   ports:
+  #     - "5435:5432"
+  #   volumes:
+  #     - payment_db_data:/var/lib/postgresql/data
+
+  product-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: product_user
+      POSTGRES_PASSWORD: product_pass
+      POSTGRES_DB: product_db
+    ports:
+      - "5436:5432"
+    volumes:
+      - product_db_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # management UI
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # order-service:
+  #   build: ./order-service
+  #   env_file: ./order-service/.env.docker
+  #   ports:
+  #     - "3001:3000"
+  #   depends_on:
+  #     - order-db
+  #     - rabbitmq
+
+  inventory-service:
+    build: ./inventory-service
+    env_file: ./inventory-service/.env.docker
+    ports:
+      - "3002:3000"
+    depends_on:
+      - inventory-db
+      - rabbitmq
+
+  # payment-service:
+  #   build: ./payment-service
+  #   env_file: ./payment-service/.env.docker
+  #   ports:
+  #     - "3003:3000"
+  #   depends_on:
+  #     - payment-db
+  #     - rabbitmq
+
+  product-service:
+    build: ./product-service
+    env_file: ./product-service/.env.docker
+    ports:
+      - "3004:3000"
+    depends_on:
+      - product-db
+      - rabbitmq
+
+volumes:
+  order_db_data:
+  inventory_db_data:
+  payment_db_data:
+  product_db_data:

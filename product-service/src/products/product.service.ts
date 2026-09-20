@@ -11,20 +11,20 @@ export class ProductService {
   ) {}
 
   async createNewProduct(dto: CreateProductDTO) {
-    const product = await this.prisma.product.create({
-      data: {
-        name: dto.name,
-        price: dto.price,
-        currency: dto.currency,
-      },
-    });
+    // const product = await this.prisma.product.create({
+    //   data: {
+    //     name: dto.name,
+    //     price: dto.price,
+    //     currency: dto.currency,
+    //   },
+    // });
      this.rebbitMQService.publish('product.created', {
       eventId: crypto.randomUUID(),
-      productId: product.id,
+      productId: 11111,
       availableStock: dto.availableStock,
       createdAt: new Date().toISOString(),
     });
     
-    return product
+    // return product
   }
 }
