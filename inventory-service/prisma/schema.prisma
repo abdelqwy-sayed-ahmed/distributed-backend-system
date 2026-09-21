@@ -1,10 +1,16 @@
-
-
 generator client {
   provider = "prisma-client"
-   output   = "../src/prisma-client"
+  output   = "../src/prisma-client"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model Inventory {
+  id             String   @id @default(uuid())
+  productId      String   @unique
+  availableStock Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

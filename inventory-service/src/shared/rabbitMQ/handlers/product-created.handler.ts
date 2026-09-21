@@ -15,13 +15,12 @@ export class ProductCreatedHandler {
   constructor(private readonly prisma: PrismaService) {}
 
   async handle(payload: ProductCreatedPayload): Promise<void> {
-    const inventory=payload
-    // const inventory = await this.prisma.inventory.create({
-    //   data: {
-    //     productId: payload.productId,
-    //     availableStock: payload.initialStock,
-    //   },
-    // });
+    const inventory = await this.prisma.inventory.create({
+      data: {
+        productId: payload.productId,
+        availableStock: payload.initialStock,
+      },
+    });
     this.logger.log(`Inventory record created: ${JSON.stringify(inventory)}`);
   }
 }
