@@ -1,11 +1,16 @@
 import { Module } from '@nestjs/common';
+import { InventoryService } from './inventory.service';
+import { HandlerModule } from '../shared/rabbitMQ/handlers/handler.module';
 import { RabbitMQSetup } from '../shared/rabbitMQ/rabbitmq.setup';
-import { ProductCreatedHandler } from '../shared/rabbitMQ/handlers/product-created.handler';
-import { PrismaService } from '../../prisma/prisma.service';
 
 @Module({
-  imports: [],
-  providers: [RabbitMQSetup, ProductCreatedHandler, PrismaService],
+  imports: [
+    HandlerModule,
+  ],
+  providers: [
+    RabbitMQSetup,
+    InventoryService,
+  ],
   controllers: [],
 })
 export class Inventorymodule {}

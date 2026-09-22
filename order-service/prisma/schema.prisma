@@ -1,5 +1,3 @@
-
-
 generator client {
   provider = "prisma-client"
   output   = "../src/prisma-client"
@@ -7,4 +5,35 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum OrderStatus {
+  PENDING
+  AWAITING_PAYMENT
+  COMPLETED
+  CANCELLED
+}
+
+model Order {
+  id          String        @id @default(uuid())
+  status      OrderStatus   @default(PENDING) 
+  items       Item[]
+  totalAmount Decimal
+  currency    String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+
+model Item {
+  id        String @id @default(uuid())
+  productId String
+  quantity  Int
+  unitPrice Decimal
+
+  orderId   String
+  order     Order  @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
 }

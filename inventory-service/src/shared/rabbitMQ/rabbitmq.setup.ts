@@ -3,6 +3,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConsumeMessage } from 'amqplib';
 import { RabbitMQService } from './rabbitmq.service';
 import { ProductCreatedHandler } from './handlers/product-created.handler';
+import { OrderCreatedHandler } from './handlers/order-created.handler';
 
 type EventHandler = (payload: any) => Promise<void>;
 
@@ -13,7 +14,8 @@ export class RabbitMQSetup implements OnModuleInit {
 
   constructor(
     private readonly rabbitMQService: RabbitMQService,
-    private readonly productCreatedHandler:ProductCreatedHandler
+    private readonly productCreatedHandler:ProductCreatedHandler,
+    private readonly orderCreatedHandler:OrderCreatedHandler
 ) {}
 
   registerHandler(routingKey: string, handler: EventHandler) {
@@ -24,11 +26,13 @@ export class RabbitMQSetup implements OnModuleInit {
     await this.rabbitMQService.waitUntilReady();
 
     this.registerHandler('product.created', (p) => this.productCreatedHandler.handle(p));
+    this.registerHandler('order.created', (p) => this.orderCreatedHandler.handle(p));
     
     await this.rabbitMQService.assertAndBindQueue('inventory_service_queue', [
       'product.created',
+      'order.created',
     ]);
-    
+
 
     this.rabbitMQService.consume(
       'inventory_service_queue',

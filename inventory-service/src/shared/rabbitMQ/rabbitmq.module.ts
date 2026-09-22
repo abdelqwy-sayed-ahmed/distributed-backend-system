@@ -4,7 +4,9 @@ import { RabbitMQService } from "./rabbitmq.service";
 
 @Global()
 @Module({
-    providers:[RabbitMQService],
+    providers:[
+        RabbitMQService,
+    ],
     exports:[RabbitMQService]
 })
 

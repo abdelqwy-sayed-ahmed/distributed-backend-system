@@ -37,7 +37,7 @@ async waitUntilReady() {
 
       await this.channel.assertExchange(
         EXCHANGE,
-        'topic',//support pattern routing  ex)order.created
+        'topic',
         { durable: true }, //survives RabbitMQ restart
       );
       console.log('RabbitMQ connected');

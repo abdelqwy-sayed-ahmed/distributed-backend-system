@@ -5,15 +5,18 @@ import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from './shared/logger/logger.module';
 import { RabbitMQModule } from './shared/rabbitMQ/rabbitmq.module';
 import { Inventorymodule } from './inventory/inventory.module';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal:true
     }),
+    PrismaModule,
     LoggerModule,
     RabbitMQModule,
-    Inventorymodule
+    Inventorymodule,
+
   ],
   controllers: [AppController],
   providers: [AppService],
