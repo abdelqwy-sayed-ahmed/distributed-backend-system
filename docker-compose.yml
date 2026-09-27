@@ -57,6 +57,7 @@ services:
       retries: 5
 
   order-service:
+    profiles: ["app"] #docker compose up never starts app services unless you explicitly ask
     build: ./order-service
     env_file: ./order-service/.env.docker
     ports:
@@ -66,6 +67,7 @@ services:
       - rabbitmq
 
   inventory-service:
+    profiles: ["app"] 
     build: ./inventory-service
     env_file: ./inventory-service/.env.docker
     ports:
@@ -85,6 +87,7 @@ services:
 
   product-service:
     build: ./product-service
+    profiles: ["app"]  
     env_file: ./product-service/.env.docker
     ports:
       - "3004:3000"
