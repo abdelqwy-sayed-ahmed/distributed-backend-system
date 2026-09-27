@@ -1,4 +1,3 @@
-// inventory-service/src/saga/saga-consumer.service.ts
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConsumeMessage } from 'amqplib';
 import { RabbitMQService } from './rabbitmq.service';

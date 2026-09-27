@@ -14,3 +14,33 @@ model Inventory {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
+
+enum ReservationStatus {
+  RESERVED
+  RELEASED
+  FAILED
+}
+
+model Reservation {
+  id        String            @id @default(uuid())
+  orderId   String            @unique
+  status    ReservationStatus @default(RESERVED)
+  items     ReservationItem[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([status])
+}
+
+model ReservationItem {
+  id        String @id @default(uuid())
+  productId String
+  quantity  Int
+
+  reservationId String
+  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  createdAt     DateTime    @default(now())
+
+  @@unique([reservationId, productId])
+  @@index([productId])
+}

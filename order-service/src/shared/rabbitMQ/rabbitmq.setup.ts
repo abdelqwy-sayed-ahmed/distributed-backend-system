@@ -2,6 +2,8 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConsumeMessage } from 'amqplib';
 import { RabbitMQService } from './rabbitmq.service';
+import { InventoryReservedHandler } from './handlers/inventory-reserved.handler';
+import { InventoryFailedHandler } from './handlers/inventory-failed.handler';
 
 type EventHandler = (payload: any) => Promise<void>;
 
@@ -12,6 +14,8 @@ export class RabbitMQSetup implements OnModuleInit {
 
   constructor(
     private readonly rabbitMQService: RabbitMQService,
+    private readonly inventoryResrvedHandler:InventoryReservedHandler,
+    private readonly inventoryFailedHandler:InventoryFailedHandler
 
 ) {}
 
@@ -19,14 +23,18 @@ export class RabbitMQSetup implements OnModuleInit {
     this.handlers.set(routingKey, handler);
   }
   
+  
   async onModuleInit() {
     await this.rabbitMQService.waitUntilReady();
-
+   
+    this.registerHandler('inventory.reserved',(p)=> this.inventoryResrvedHandler.handler(p))
+    this.registerHandler('inventory.failed',(p)=> this.inventoryFailedHandler.handler(p))
     
     await this.rabbitMQService.assertAndBindQueue('order_service_queue', [
       'inventory.failed',
       'inventory.released',
       'payment.succeeded',
+      'inventory.reserved'
     ]);
     
     
