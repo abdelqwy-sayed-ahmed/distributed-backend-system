@@ -23,16 +23,16 @@ services:
     volumes:
       - inventory_db_data:/var/lib/postgresql/data
 
-  # payment-db:
-  #   image: postgres:16
-  #   environment:
-  #     POSTGRES_USER: payment_user
-  #     POSTGRES_PASSWORD: payment_pass
-  #     POSTGRES_DB: payment_db
-  #   ports:
-  #     - "5435:5432"
-  #   volumes:
-  #     - payment_db_data:/var/lib/postgresql/data
+  payment-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: payment_user
+      POSTGRES_PASSWORD: payment_pass
+      POSTGRES_DB: payment_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - payment_db_data:/var/lib/postgresql/data
 
   product-db:
     image: postgres:16
@@ -76,14 +76,15 @@ services:
       - inventory-db
       - rabbitmq
 
-  # payment-service:
-  #   build: ./payment-service
-  #   env_file: ./payment-service/.env.docker
-  #   ports:
-  #     - "3003:3000"
-  #   depends_on:
-  #     - payment-db
-  #     - rabbitmq
+  payment-service:
+    profiles: ["app"] 
+    build: ./payment-service
+    env_file: ./payment-service/.env.docker
+    ports:
+      - "3003:3000"
+    depends_on:
+      - payment-db
+      - rabbitmq
 
   product-service:
     build: ./product-service
@@ -98,5 +99,5 @@ services:
 volumes:
   order_db_data:
   inventory_db_data:
-  # payment_db_data:
+  payment_db_data:
   product_db_data:
