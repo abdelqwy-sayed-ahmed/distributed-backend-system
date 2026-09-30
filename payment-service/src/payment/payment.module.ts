@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { RabbitMQSetup } from "../shared/rabbitmq/rabbitmq.setup";
 import { HandlerModule } from "../shared/rabbitmq/handlers/handler.module";
+import { PaymentService } from "./payment.service";
+import { PaymentController } from "./payment.controller";
 
 
 @Module({
@@ -8,9 +10,12 @@ import { HandlerModule } from "../shared/rabbitmq/handlers/handler.module";
         HandlerModule
     ],
     providers:[
-    RabbitMQSetup
+    RabbitMQSetup,
+    PaymentService
     ],
-    controllers:[]
+    controllers:[
+        PaymentController
+    ]
 })
 
 export class Paymentmodule{}

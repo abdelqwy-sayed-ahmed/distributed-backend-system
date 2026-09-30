@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { InventoryReservedHandler } from "./inventory-reserved.handler";
 import { InventoryFailedHandler } from "./inventory-failed.handler";
+import { InventoryReleasedHandler } from "./inventory-released.handler";
 
 
 @Module({
@@ -9,11 +10,13 @@ import { InventoryFailedHandler } from "./inventory-failed.handler";
     ],
     providers:[
         InventoryReservedHandler,
-        InventoryFailedHandler
+        InventoryFailedHandler,
+        InventoryReleasedHandler
     ],
     exports:[
         InventoryReservedHandler,
-        InventoryFailedHandler
+        InventoryFailedHandler,
+        InventoryReleasedHandler
     ]
 })
 

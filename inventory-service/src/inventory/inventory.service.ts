@@ -2,10 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { OrderItem } from '../shared/types/inventory.type';
 import { PrismaService } from '../../prisma/prisma.service';
 import { InsufficientStockError } from '../shared/errors/insufficient.error';
+import { RabbitMQService } from '../shared/rabbitMQ/rabbitmq.service';
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rabbitMQService:RabbitMQService
+  ) {}
 
   async reserveStock(orderId: string, items: OrderItem[]) {
     try {
@@ -96,6 +100,12 @@ export class InventoryService {
         where: { id: reservationId },
         data: { status: 'RELEASED' },
       });
+    });
+
+     this.rabbitMQService.publish('inventory.released', {
+      eventId: crypto.randomUUID(),
+      orderId: reservation.orderId, 
+      releasedAt: new Date().toISOString(),
     });
   }
 }

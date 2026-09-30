@@ -4,6 +4,7 @@ import { ConsumeMessage } from 'amqplib';
 import { RabbitMQService } from './rabbitmq.service';
 import { InventoryReservedHandler } from './handlers/inventory-reserved.handler';
 import { InventoryFailedHandler } from './handlers/inventory-failed.handler';
+import { InventoryReleasedHandler } from './handlers/inventory-released.handler';
 
 type EventHandler = (payload: any) => Promise<void>;
 
@@ -15,7 +16,8 @@ export class RabbitMQSetup implements OnModuleInit {
   constructor(
     private readonly rabbitMQService: RabbitMQService,
     private readonly inventoryResrvedHandler:InventoryReservedHandler,
-    private readonly inventoryFailedHandler:InventoryFailedHandler
+    private readonly inventoryFailedHandler:InventoryFailedHandler,
+    private readonly inventoryReleasedHandler:InventoryReleasedHandler
 
 ) {}
 
@@ -27,8 +29,9 @@ export class RabbitMQSetup implements OnModuleInit {
   async onModuleInit() {
     await this.rabbitMQService.waitUntilReady();
    
-    this.registerHandler('inventory.reserved',(p)=> this.inventoryResrvedHandler.handler(p))
-    this.registerHandler('inventory.failed',(p)=> this.inventoryFailedHandler.handler(p))
+    this.registerHandler('inventory.reserved',(p)=> this.inventoryResrvedHandler.handle(p))
+    this.registerHandler('inventory.failed',(p)=> this.inventoryFailedHandler.handle(p))
+    this.registerHandler('inventory.released',(p)=> this.inventoryReleasedHandler.handle(p))
     
     await this.rabbitMQService.assertAndBindQueue('order_service_queue', [
       'inventory.failed',

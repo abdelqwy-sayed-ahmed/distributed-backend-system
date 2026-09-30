@@ -6,7 +6,7 @@ import { OrderStatus } from '../../../prisma-client/enums';
 export class InventoryFailedHandler {
   constructor(private readonly prisma: PrismaService) {}
 
-  async handler(payload: any): Promise<any> {
+  async handle(payload: any): Promise<any> {
     try {
       const order = await this.prisma.order.update({
         where: {

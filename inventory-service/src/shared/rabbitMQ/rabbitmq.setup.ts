@@ -3,6 +3,7 @@ import { ConsumeMessage } from 'amqplib';
 import { RabbitMQService } from './rabbitmq.service';
 import { ProductCreatedHandler } from './handlers/product-created.handler';
 import { OrderCreatedHandler } from './handlers/order-created.handler';
+import { PaymentFailedHandler } from './handlers/payment-failed.handler';
 
 type EventHandler = (payload: any) => Promise<void>;
 
@@ -14,7 +15,8 @@ export class RabbitMQSetup implements OnModuleInit {
   constructor(
     private readonly rabbitMQService: RabbitMQService,
     private readonly productCreatedHandler:ProductCreatedHandler,
-    private readonly orderCreatedHandler:OrderCreatedHandler
+    private readonly orderCreatedHandler:OrderCreatedHandler,
+    private readonly paymentFailedHandler:PaymentFailedHandler
 ) {}
 
   registerHandler(routingKey: string, handler: EventHandler) {
@@ -26,10 +28,12 @@ export class RabbitMQSetup implements OnModuleInit {
 
     this.registerHandler('product.created', (p) => this.productCreatedHandler.handle(p));
     this.registerHandler('order.created', (p) => this.orderCreatedHandler.handle(p));
+    this.registerHandler('payment.failed', (p) => this.paymentFailedHandler.handle(p));
     
     await this.rabbitMQService.assertAndBindQueue('inventory_service_queue', [
       'product.created',
       'order.created',
+      'payment.failed'
     ]);
 
 
