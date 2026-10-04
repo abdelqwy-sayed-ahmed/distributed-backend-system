@@ -74,9 +74,9 @@ export class InventoryService {
     return this.prisma.reservation.findUnique({ where: { orderId } });
   }
 
-  async releaseReservation(reservationId: string) {
-    const reservation = await this.prisma.reservation.findUnique({
-      where: { id: reservationId },
+  async releaseReservation(orderId: string) {
+    const reservation = await this.prisma.reservation.findFirst({
+      where: { orderId },
       include: {
         items: true,
       },
@@ -84,7 +84,7 @@ export class InventoryService {
 
     if (!reservation) {
       throw new NotFoundException(
-        `reservation with id ${reservationId} not found`,
+        `there is no reservation for this ${orderId}`,
       );
     }
     const items = reservation.items as OrderItem[];
@@ -97,7 +97,7 @@ export class InventoryService {
         });
       }
       await tx.reservation.update({
-        where: { id: reservationId },
+        where: { id: reservation.id },
         data: { status: 'RELEASED' },
       });
     });

@@ -5,10 +5,10 @@ import { RabbitMQService } from '../shared/rabbitmq/rabbitmq.service';
 export class PaymentService {
   constructor(private readonly rabbitMQService: RabbitMQService) {}
 
-  async paymentFailed(reservationId: string) {
+  async paymentFailed(orderId: string) {
     this.rabbitMQService.publish('payment.failed', {
       eventId: crypto.randomUUID(),
-      reservationId:reservationId,
+      orderId,
       failedAt: new Date().toISOString(),
     });
   }

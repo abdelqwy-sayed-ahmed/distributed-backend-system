@@ -2,7 +2,7 @@ import { Body, Controller, Post } from "@nestjs/common";
 import { PaymentService } from "./payment.service";
 
 interface PaymentBody{
-    reservationId:string
+    orderId:string
 }
 
 @Controller('payment')
@@ -14,7 +14,7 @@ export class PaymentController{
 
     @Post('/failed')
     async paymentFailed(@Body() body:PaymentBody){
-        return await this.paymentService.paymentFailed(body.reservationId)
+        return await this.paymentService.paymentFailed(body.orderId)
     } 
 
 

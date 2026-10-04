@@ -8,9 +8,8 @@ export class PaymentFailedHandler {
   ) {}
 
   async handle(payload: any): Promise<any> {
-    
     try{
-      await this.inventoryService.releaseReservation(payload?.reservationId)
+      await this.inventoryService.releaseReservation(payload?.orderId)
       
       console.log(`inventory released for ${JSON.stringify(payload?.reservationId)}`)
 
