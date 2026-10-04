@@ -2,6 +2,8 @@ import { Module } from "@nestjs/common";
 import { InventoryReservedHandler } from "./inventory-reserved.handler";
 import { InventoryFailedHandler } from "./inventory-failed.handler";
 import { InventoryReleasedHandler } from "./inventory-released.handler";
+import { PaymentSuccededhandler } from "./payment-succeeded.handler";
+import { OrderService } from "../../../orders/order.service";
 
 
 @Module({
@@ -11,12 +13,15 @@ import { InventoryReleasedHandler } from "./inventory-released.handler";
     providers:[
         InventoryReservedHandler,
         InventoryFailedHandler,
-        InventoryReleasedHandler
+        InventoryReleasedHandler,
+        PaymentSuccededhandler,
+        OrderService
     ],
     exports:[
         InventoryReservedHandler,
         InventoryFailedHandler,
-        InventoryReleasedHandler
+        InventoryReleasedHandler,
+        PaymentSuccededhandler
     ]
 })
 

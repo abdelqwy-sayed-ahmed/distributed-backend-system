@@ -12,4 +12,12 @@ export class PaymentService {
       failedAt: new Date().toISOString(),
     });
   }
+
+  async paymentSucceeded(orderId: string) {
+    this.rabbitMQService.publish('payment.succeeded', {
+      eventId: crypto.randomUUID(),
+      orderId,
+      successAt: new Date().toISOString(),
+    });
+  }
 }

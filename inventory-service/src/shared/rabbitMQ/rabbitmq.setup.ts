@@ -55,7 +55,7 @@ export class RabbitMQSetup implements OnModuleInit {
           await handler(payload);
           ack();
         } catch (err) {
-          this.logger.error(`Handler failed for ${routingKey}`, err);
+          this.logger.error(`Handler failed for ${routingKey}`);
           nack();
         }
       },

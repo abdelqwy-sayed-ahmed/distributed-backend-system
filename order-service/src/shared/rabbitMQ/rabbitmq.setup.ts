@@ -5,6 +5,7 @@ import { RabbitMQService } from './rabbitmq.service';
 import { InventoryReservedHandler } from './handlers/inventory-reserved.handler';
 import { InventoryFailedHandler } from './handlers/inventory-failed.handler';
 import { InventoryReleasedHandler } from './handlers/inventory-released.handler';
+import { PaymentSuccededhandler } from './handlers/payment-succeeded.handler';
 
 type EventHandler = (payload: any) => Promise<void>;
 
@@ -17,7 +18,9 @@ export class RabbitMQSetup implements OnModuleInit {
     private readonly rabbitMQService: RabbitMQService,
     private readonly inventoryResrvedHandler:InventoryReservedHandler,
     private readonly inventoryFailedHandler:InventoryFailedHandler,
-    private readonly inventoryReleasedHandler:InventoryReleasedHandler
+    private readonly inventoryReleasedHandler:InventoryReleasedHandler,
+    private readonly paymentSucceededHandler:PaymentSuccededhandler
+  
 
 ) {}
 
@@ -32,12 +35,14 @@ export class RabbitMQSetup implements OnModuleInit {
     this.registerHandler('inventory.reserved',(p)=> this.inventoryResrvedHandler.handle(p))
     this.registerHandler('inventory.failed',(p)=> this.inventoryFailedHandler.handle(p))
     this.registerHandler('inventory.released',(p)=> this.inventoryReleasedHandler.handle(p))
+    this.registerHandler('payment.succeeded',(p)=> this.paymentSucceededHandler.handle(p))
     
     await this.rabbitMQService.assertAndBindQueue('order_service_queue', [
       'inventory.failed',
       'inventory.released',
       'payment.succeeded',
-      'inventory.reserved'
+      'inventory.reserved',
+      'payment.succeeded'
     ]);
     
     

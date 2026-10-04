@@ -6,6 +6,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { OrderModule } from './orders/order.module';
 import { HttpModule } from './shared/http/http.module';
 import { RabbitMQModule } from './shared/rabbitMQ/rabbitmq.module';
+import { LoggerModule } from './shared/logger/logger.module';
 
 
 @Module({
@@ -16,7 +17,8 @@ import { RabbitMQModule } from './shared/rabbitMQ/rabbitmq.module';
     PrismaModule,
     OrderModule,
     HttpModule,
-    RabbitMQModule
+    RabbitMQModule,
+    LoggerModule
    
   ],
   controllers: [AppController],

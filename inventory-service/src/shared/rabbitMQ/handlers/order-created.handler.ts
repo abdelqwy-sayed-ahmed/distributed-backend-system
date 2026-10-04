@@ -18,6 +18,13 @@ export class OrderCreatedHandler {
       payload.items,
     );
 
+    if (result.block) {
+      this.logger.warn(
+        `Ignoring duplicate order.created for ${payload.orderId}`,
+      );
+
+      return;
+    }
     if (result.success) {
       this.logger.log(
         `Reserved stock for order ${payload.orderId} (reservation ${result.reservationId})`,

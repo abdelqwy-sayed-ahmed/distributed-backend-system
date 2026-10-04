@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, LoggerService, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrderDto } from '../shared/dtos/create-order.dto';
 import { HttpService } from '../shared/http/http.service';
 import { RabbitMQService } from '../shared/rabbitMQ/rabbitmq.service';
 import { OrderStatus } from '../prisma-client/enums';
+import { LoggerAppService } from '../shared/logger/logger.service';
 
 @Injectable()
 export class OrderService {
@@ -11,6 +12,7 @@ export class OrderService {
     private readonly prisma: PrismaService,
     private readonly http: HttpService,
     private readonly rabbitMQService: RabbitMQService,
+    private readonly logger:LoggerAppService
   ) {}
 
   async getProductPrices(productIds: string[]) {
@@ -73,9 +75,22 @@ export class OrderService {
   }
 
   async updateStatus(orderId: string, status: OrderStatus) {
-    return this.prisma.order.update({
-      where: { id: orderId },
+     const TERMINAL_STATES :OrderStatus[]= [OrderStatus.COMPLETED, OrderStatus.CANCELLED];
+    const result= await this.prisma.order.updateMany({
+      where: { id: orderId , status:{notIn:TERMINAL_STATES} },
       data: { status },
     });
+
+     if (result.count === 0) {
+    this.logger.warn(
+      `Ignored status update to ${status} for order ${orderId} — already terminal or not found`,
+    );
   }
+
+  return result;
+    
+  }
+
+
+
 }

@@ -12,6 +12,11 @@ export class PaymentController{
 
     ){}
 
+    @Post('/success')
+    async paymentSucceeded(@Body() body:PaymentBody){
+        return await this.paymentService.paymentSucceeded(body.orderId)
+    } 
+
     @Post('/failed')
     async paymentFailed(@Body() body:PaymentBody){
         return await this.paymentService.paymentFailed(body.orderId)

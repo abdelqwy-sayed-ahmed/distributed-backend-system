@@ -1,28 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../../prisma/prisma.service';
 import { OrderStatus } from '../../../prisma-client/enums';
+import { OrderService } from '../../../orders/order.service';
+
+interface inventoryReservedPayload {
+  eventId: string;
+  orderId: string;
+}
 
 @Injectable()
 export class InventoryReservedHandler {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly orderService: OrderService) {}
 
-  async handle(payload: any): Promise<any> {
-    try {
-      const order = await this.prisma.order.update({
-        where: {
-          id: payload.orderId,
-        },
-        data: {
-          status: OrderStatus.AWAITING_PAYMENT,
-        },
-      });
-   
-      return {
-        status: 'success',
-        data: order.id,
-      };
-    } catch (err) {
-      console.log(err);
-    }
+  async handle(payload: inventoryReservedPayload): Promise<any> {
+    return await this.orderService.updateStatus(
+      payload.orderId,
+      OrderStatus.AWAITING_PAYMENT,
+    );
   }
 }

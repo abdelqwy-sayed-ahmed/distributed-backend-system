@@ -3,17 +3,31 @@ import { OrderItem } from '../shared/types/inventory.type';
 import { PrismaService } from '../../prisma/prisma.service';
 import { InsufficientStockError } from '../shared/errors/insufficient.error';
 import { RabbitMQService } from '../shared/rabbitMQ/rabbitmq.service';
+import { LoggerAppService } from '../shared/logger/logger.service';
+import { Prisma, ReservationStatus } from '../prisma-client/client';
 
 @Injectable()
 export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly rabbitMQService:RabbitMQService
+    private readonly rabbitMQService: RabbitMQService,
+    private readonly logger: LoggerAppService,
   ) {}
 
   async reserveStock(orderId: string, items: OrderItem[]) {
+    const existOrder = await this.prisma.reservation.findUnique({
+      where: {
+        orderId: orderId,
+      },
+    });
+    if (existOrder) {
+      this.logger.error(
+        `this order with id ${orderId} already exist and processing`,
+      );
+
+      return { block: true };
+    }
     try {
-      
       const reservationId = await this.prisma.$transaction(async (tx) => {
         // Lock/read current stock for every requested product
         const inventories = await tx.inventory.findMany({
@@ -66,8 +80,19 @@ export class InventoryService {
           reason: `Insufficient stock for product ${err.productId}`,
         };
       }
-      throw err; 
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        this.logger.error(`Order ${orderId} was already reserved`);
+
+        return {
+          block: true,
+        };
+      }
+      throw err;
     }
+    // }
   }
 
   async findReservationByOrderId(orderId: string) {
@@ -75,7 +100,7 @@ export class InventoryService {
   }
 
   async releaseReservation(orderId: string) {
-    const reservation = await this.prisma.reservation.findFirst({
+    const reservation = await this.prisma.reservation.findUnique({
       where: { orderId },
       include: {
         items: true,
@@ -89,22 +114,30 @@ export class InventoryService {
     }
     const items = reservation.items as OrderItem[];
 
-    await this.prisma.$transaction(async (tx) => {
+    const released = await this.prisma.$transaction(async (tx) => {
       for (const item of items) {
         await tx.inventory.update({
           where: { productId: item.productId },
           data: { availableStock: { increment: item.quantity } },
         });
       }
-      await tx.reservation.update({
-        where: { id: reservation.id },
-        data: { status: 'RELEASED' },
+      await tx.reservation.updateMany({
+        where: { id: reservation.id, status: ReservationStatus.RESERVED },
+        data: { status: ReservationStatus.RELEASED },
       });
+      return true;
     });
 
-     this.rabbitMQService.publish('inventory.released', {
+    if (!released) {
+      this.logger.warn(
+        `Reservation for order ${orderId} already released — ignoring duplicate`,
+      );
+      return;
+    }
+
+    this.rabbitMQService.publish('inventory.released', {
       eventId: crypto.randomUUID(),
-      orderId: reservation.orderId, 
+      orderId: reservation.orderId,
       releasedAt: new Date().toISOString(),
     });
   }
