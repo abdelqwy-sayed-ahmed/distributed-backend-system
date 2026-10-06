@@ -6,3 +6,5 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+//orderId must be a unique @unique

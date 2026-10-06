@@ -30,30 +30,31 @@ export class InventoryService {
     try {
       const reservationId = await this.prisma.$transaction(async (tx) => {
         // Lock/read current stock for every requested product
-        const inventories = await tx.inventory.findMany({
-          where: { productId: { in: items.map((i) => i.productId) } },
-        });
-
-        const inventoryByProduct = new Map(
-          inventories.map((i) => [i.productId, i]),
-        );
-
-        // Check every item BEFORE writing anything — no partial reservation
+       
+        // we use Atomic operatin  to solve concurrency issues 
+        // by let the database itself to make the decision 
+        // "Update this product ONLY IF availableStock >= requested quantity"
         for (const item of items) {
-          const inv = inventoryByProduct.get(item.productId);
-          if (!inv || inv.availableStock < item.quantity) {
-            throw new InsufficientStockError(item.productId);
+          const result = await tx.inventory.updateMany({
+            where: {
+              productId: item.productId,
+              availableStock: {
+                gte: item.quantity,//update where stock greater than or equal quantity
+              },
+            },
+            data: {
+              availableStock: {
+                decrement: item.quantity,
+              },
+            },
+          });
+
+          if (result.count !== 1) {
+            throw new InsufficientStockError(
+              item.productId,
+            );
           }
         }
-
-        // All good — decrement each, then create the one Reservation row
-        for (const item of items) {
-          await tx.inventory.update({
-            where: { productId: item.productId },
-            data: { availableStock: { decrement: item.quantity } },
-          });
-        }
-
         const reservation = await tx.reservation.create({
           data: {
             orderId,
@@ -84,7 +85,7 @@ export class InventoryService {
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
-        this.logger.error(`Order ${orderId} was already reserved`);
+        this.logger.warn(`Order ${orderId} was already reserved`);
 
         return {
           block: true,
