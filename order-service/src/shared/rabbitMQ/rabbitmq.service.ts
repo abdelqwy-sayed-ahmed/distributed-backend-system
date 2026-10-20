@@ -1,95 +1,231 @@
-// rabbitmq/rabbitmq.service.ts
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import * as amqp from 'amqplib';
-
+import { randomUUID } from 'node:crypto';
 const EXCHANGE = 'commerce_events_exchange';
+const RECONNECT_DELAY_MS = 10000;
+
+type SetupCallback = () => Promise<void>;
 
 @Injectable()
 export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
-  private connection: amqp.ChannelModel|null=null;
-  private channel: amqp.Channel|null=null;
+  private readonly logger = new Logger(RabbitMQService.name);
 
- async onModuleInit() {
-    await this.connect();
+  private connection: amqp.ChannelModel | null = null;
+  private channel: amqp.ConfirmChannel | null = null;
+  private readonly returned = new Set<string>();
+  private setupCallback: SetupCallback | null = null;
+
+  private closing = false;
+  private connecting = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  onModuleInit(): void {
+    void this.connect();
   }
 
-  private getChannel(): amqp.Channel {
-  if (!this.channel) {
-    throw new Error('RabbitMQ channel is not available');
+  registerSetup(callback: SetupCallback): void {
+    this.setupCallback = callback;
+
+    // Connection may have completed before RabbitMQSetup initialized.
+    if (this.channel) {
+      void this.runSetup();
+    }
   }
 
-  return this.channel;
-}
+  private async connect(): Promise<void> {
+    if (this.closing || this.connecting) return;
 
-async waitUntilReady() {
-  while (!this.channel) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-}
+    this.connecting = true;
 
-  private async connect() {
     try {
       const url = process.env.RABBITMQ_URL;
       if (!url) throw new Error('RABBITMQ_URL is not defined');
 
-      this.connection = await amqp.connect(url);
-      this.channel = await this.connection.createChannel();
+      const connection = await amqp.connect(url);
+      this.connection = connection;
 
-      await this.channel.assertExchange(
-        EXCHANGE,
-        'topic',
-        { durable: true }, //survives RabbitMQ restart
+      connection.on('error', (err) => {
+        this.logger.error(`RabbitMQ connection error: ${err.message}`);
+      });
+
+      connection.on('close', () => {
+        if (this.connection !== connection) return;
+
+        this.connection = null;
+        this.channel = null;
+
+        if (!this.closing) {
+          this.logger.warn(
+            'RabbitMQ disconnected. Reconnecting in 5 seconds...',
+          );
+          this.scheduleReconnect();
+        }
+      });
+
+      const channel = await connection.createChannel();
+      this.channel = await this.connection.createConfirmChannel();
+      this.channel.on('return', (msg) => {
+        const messageId = msg.properties.messageId;
+
+        if (messageId) {
+          this.returned.add(messageId);
+        }
+
+        this.logger.error(
+          `Unroutable message: ${messageId}, routing key: ${msg.fields.routingKey}`,
+        );
+      });
+
+      await channel.assertExchange(EXCHANGE, 'topic', { durable: true });
+
+      this.logger.log('RabbitMQ connected');
+
+      // Recreate queue bindings and consumers after every reconnection.
+      await this.runSetup();
+    } catch (err: unknown) {
+      this.logger.error(
+        `RabbitMQ connection/setup failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       );
-      console.log('RabbitMQ connected');
-      // Handle unexpected connection drops — attempt reconnect
-      this.connection.on('error', (err) => {
-        console.error('RabbitMQ connection error for order-service', err.message);
-      });
 
-      this.connection.on('close', () => {
-        console.warn('RabbitMQ connection closed for order-service — reconnecting in 5s');
-        setTimeout(() => this.connect(), 5000);
-      });
-    } catch (err:any) {
-      console.error('RabbitMQ connection failed — retrying in 5s', err.message);
-      setTimeout(() => this.connect(), 5000);
-    } 
-  }
+      const connection = this.connection;
+      this.connection = null;
+      this.channel = null;
 
-   async assertAndBindQueue(queue: string, routingKeys: string[]) {
-    const channel = this.getChannel();
-    await channel.assertQueue(queue, { durable: true });
-    for (const key of routingKeys) {
-      console.log(`bind ${key} with ${queue}`)
-      await channel.bindQueue(queue, EXCHANGE, key);
+      if (connection) {
+        try {
+          await connection.close();
+        } catch {
+          // Connection may already be closed.
+        }
+      }
+
+      this.scheduleReconnect();
+    } finally {
+      this.connecting = false;
     }
   }
 
-  publish(routingKey: string, payload: object) {
-    const channel = this.getChannel();
-    channel.publish(
-      EXCHANGE,
-      routingKey,
-      Buffer.from(JSON.stringify(payload)),
-      { persistent: true },
-    );
+  private async runSetup(): Promise<void> {
+    if (this.setupCallback) {
+      await this.setupCallback();
+    }
   }
 
-  async consume(queue: string, handler: (msg: amqp.ConsumeMessage, ack: () => void, nack: () => void) => void) {
-    const channel = this.getChannel();
-    await channel.prefetch(10);
-    channel.consume(queue, (msg) => {
-      if (!msg) return;
-      const ack = () => channel.ack(msg);
-      const nack = () => channel.nack(msg, false, true); // requeue — you'll revisit this in Phase 7/DLQ
-      handler(msg, ack, nack);
+  private scheduleReconnect(): void {
+    if (this.closing || this.reconnectTimer) return;
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connect();
+    }, RECONNECT_DELAY_MS);
+  }
+
+  async assertAndBindQueue(
+    queue: string,
+    routingKeys: string[],
+  ): Promise<void> {
+    const channel = this.channel;
+    if (!channel) throw new Error('RabbitMQ channel is not available');
+
+    await channel.assertQueue(queue, { durable: true });
+
+    for (const key of routingKeys) {
+      await channel.bindQueue(queue, EXCHANGE, key);
+      this.logger.log(`Bound ${key} to ${queue}`);
+    }
+  }
+
+  publish(
+    routingKey: string,
+    payload: object,
+    messageId: string = randomUUID(),
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.channel) {
+        return reject(new Error('RabbitMQ channel not ready'));
+      }
+      this.channel.publish(
+        EXCHANGE,
+        routingKey,
+        Buffer.from(JSON.stringify(payload)),
+        {
+          persistent: true,
+          mandatory: true,
+          messageId,
+          contentType: 'application/json',
+        },
+        (err: any) => {
+          if (err) return reject(err); // broker nack, or channel closed while waiting
+          if (this.returned.delete(messageId)) {
+            return reject(
+              new Error(`Unroutable message for routing key ${routingKey}`),
+            );
+          }
+          resolve(); // the broker accepted it AND at least one queue received it
+        },
+      );
     });
   }
 
+  async consume(
+    queue: string,
+    handler: (
+      msg: amqp.ConsumeMessage,
+      ack: () => void,
+      nack: () => void,
+    ) => void | Promise<void>,
+  ): Promise<void> {
+    const channel = this.channel;
+    if (!channel) throw new Error('RabbitMQ channel is not available');
 
-  async onModuleDestroy() {
-    const channel = this.getChannel();
-    await channel.close();
-    await this.connection?.close();
+    await channel.prefetch(10);
+
+    await channel.consume(queue, (msg) => {
+      if (!msg) return;
+
+      const ack = () => channel.ack(msg);
+      const nack = () => channel.nack(msg, false, true);
+
+      void Promise.resolve(handler(msg, ack, nack)).catch((err: unknown) => {
+        this.logger.error(
+          `Unhandled consumer error: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+
+        nack();
+      });
+    });
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    this.closing = true;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    try {
+      await this.channel?.close();
+    } catch {
+      // Channel may already be closed.
+    }
+
+    try {
+      await this.connection?.close();
+    } catch {
+      // Connection may already be closed.
+    }
+
+    this.channel = null;
+    this.connection = null;
   }
 }

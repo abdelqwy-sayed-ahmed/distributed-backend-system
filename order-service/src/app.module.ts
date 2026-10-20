@@ -7,6 +7,7 @@ import { OrderModule } from './orders/order.module';
 import { HttpModule } from './shared/http/http.module';
 import { RabbitMQModule } from './shared/rabbitMQ/rabbitmq.module';
 import { LoggerModule } from './shared/logger/logger.module';
+import { OutboxModule } from './shared/outbox/outbox.module';
 
 
 @Module({
@@ -14,11 +15,12 @@ import { LoggerModule } from './shared/logger/logger.module';
     ConfigModule.forRoot({
       isGlobal:true
     }),
-    PrismaModule,
     OrderModule,
+    PrismaModule,
     HttpModule,
     RabbitMQModule,
-    LoggerModule
+    LoggerModule,
+    OutboxModule
    
   ],
   controllers: [AppController],

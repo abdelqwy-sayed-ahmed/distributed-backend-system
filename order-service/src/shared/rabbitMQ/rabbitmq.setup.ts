@@ -1,6 +1,7 @@
 
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConsumeMessage } from 'amqplib';
+
 import { RabbitMQService } from './rabbitmq.service';
 import { InventoryReservedHandler } from './handlers/inventory-reserved.handler';
 import { InventoryFailedHandler } from './handlers/inventory-failed.handler';
@@ -16,62 +17,65 @@ export class RabbitMQSetup implements OnModuleInit {
 
   constructor(
     private readonly rabbitMQService: RabbitMQService,
-    private readonly inventoryResrvedHandler:InventoryReservedHandler,
-    private readonly inventoryFailedHandler:InventoryFailedHandler,
-    private readonly inventoryReleasedHandler:InventoryReleasedHandler,
-    private readonly paymentSucceededHandler:PaymentSuccededhandler
-  
+    private readonly inventoryReservedHandler: InventoryReservedHandler,
+    private readonly inventoryFailedHandler: InventoryFailedHandler,
+    private readonly inventoryReleasedHandler: InventoryReleasedHandler,
+    private readonly paymentSucceededHandler: PaymentSuccededhandler,
+  ) {}
 
-) {}
+  onModuleInit(): void {
+    this.handlers.set('inventory.reserved', (p) =>
+      this.inventoryReservedHandler.handle(p),
+    );
+    this.handlers.set('inventory.failed', (p) =>
+      this.inventoryFailedHandler.handle(p),
+    );
+    this.handlers.set('inventory.released', (p) =>
+      this.inventoryReleasedHandler.handle(p),
+    );
+    this.handlers.set('payment.succeeded', (p) =>
+      this.paymentSucceededHandler.handle(p),
+    );
 
-  registerHandler(routingKey: string, handler: EventHandler) {
-    this.handlers.set(routingKey, handler);
+    // Register setup without blocking NestJS startup.
+    this.rabbitMQService.registerSetup(() => this.setupConsumer());
   }
-  
-  
-  async onModuleInit() {
-    await this.rabbitMQService.waitUntilReady();
-   
-    this.registerHandler('inventory.reserved',(p)=> this.inventoryResrvedHandler.handle(p))
-    this.registerHandler('inventory.failed',(p)=> this.inventoryFailedHandler.handle(p))
-    this.registerHandler('inventory.released',(p)=> this.inventoryReleasedHandler.handle(p))
-    this.registerHandler('payment.succeeded',(p)=> this.paymentSucceededHandler.handle(p))
-    
+
+  private async setupConsumer(): Promise<void> {
     await this.rabbitMQService.assertAndBindQueue('order_service_queue', [
       'inventory.failed',
       'inventory.released',
       'payment.succeeded',
       'inventory.reserved',
-      'payment.succeeded'
     ]);
-    
-    
 
-    this.rabbitMQService.consume(
+    await this.rabbitMQService.consume(
       'order_service_queue',
       async (msg: ConsumeMessage, ack, nack) => {
         const routingKey = msg.fields.routingKey;
         const handler = this.handlers.get(routingKey);
 
         if (!handler) {
-          this.logger.warn(
-            `No handler registered for routing key: ${routingKey}`,
-          );
-          return ack();
+          this.logger.warn(`No handler registered for ${routingKey}`);
+          ack();
+          return;
         }
 
         try {
           const payload = JSON.parse(msg.content.toString());
           await handler(payload);
           ack();
-        } catch (err) {
-          this.logger.error(`Handler failed for ${routingKey}`, err);
+        } catch (err: unknown) {
+          this.logger.error(
+            `Handler failed for ${routingKey}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
           nack();
         }
       },
     );
 
-
-    
+    this.logger.log('Order Service consumer is ready');
   }
 }
