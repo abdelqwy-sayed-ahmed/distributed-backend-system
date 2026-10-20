@@ -1,145 +1,186 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { OrderItem } from '../shared/types/inventory.type';
+import { OrderCreatedPayload, OrderItem } from '../shared/types/inventory.type';
 import { PrismaService } from '../../prisma/prisma.service';
 import { InsufficientStockError } from '../shared/errors/insufficient.error';
-import { RabbitMQService } from '../shared/rabbitMQ/rabbitmq.service';
 import { LoggerAppService } from '../shared/logger/logger.service';
 import { Prisma, ReservationStatus } from '../prisma-client/client';
-
+import { randomUUID } from 'node:crypto';
 @Injectable()
 export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly rabbitMQService: RabbitMQService,
     private readonly logger: LoggerAppService,
   ) {}
 
-  async reserveStock(orderId: string, items: OrderItem[]) {
-    const existOrder = await this.prisma.reservation.findUnique({
-      where: {
-        orderId: orderId,
-      },
-    });
-    if (existOrder) {
-      this.logger.error(
-        `this order with id ${orderId} already exist and processing`,
-      );
 
-      return { block: true };
-    }
-    try {
-      const reservationId = await this.prisma.$transaction(async (tx) => {
-        // Lock/read current stock for every requested product
-       
-        // we use Atomic operatin  to solve concurrency issues 
-        // by let the database itself to make the decision 
-        // "Update this product ONLY IF availableStock >= requested quantity"
-        for (const item of items) {
-          const result = await tx.inventory.updateMany({
-            where: {
-              productId: item.productId,
-              availableStock: {
-                gte: item.quantity,//update where stock greater than or equal quantity
-              },
-            },
-            data: {
-              availableStock: {
-                decrement: item.quantity,
-              },
-            },
-          });
+  async reserveStock(payload: OrderCreatedPayload):Promise<any> {
+  const { orderId, items, totalAmount, currency } = payload;
 
-          if (result.count !== 1) {
-            throw new InsufficientStockError(
-              item.productId,
-            );
-          }
-        }
-        const reservation = await tx.reservation.create({
-          data: {
-            orderId,
-            items: {
-              create: items.map((item) => {
-                return {
-                  productId: item.productId,
-                  quantity: item.quantity,
-                };
-              }),
-            },
+  const existing = await this.prisma.reservation.findUnique({
+    where: { orderId },
+  });
+
+  if (existing) {
+    return { block: true };
+  }
+
+  try {
+    return await this.prisma.$transaction(async (tx) => {
+      for (const item of items) {
+        const result = await tx.inventory.updateMany({
+          where: {
+            productId: item.productId,
+            availableStock: { gte: item.quantity },
           },
-          include: {
-            items: true,
+          data: {
+            availableStock: { decrement: item.quantity },
           },
         });
-        return reservation.id;
-      });
-      return { success: true, reservationId };
-    } catch (err) {
-      if (err instanceof InsufficientStockError) {
-        return {
-          success: false,
-          reason: `Insufficient stock for product ${err.productId}`,
-        };
-      }
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        this.logger.warn(`Order ${orderId} was already reserved`);
 
-        return {
-          block: true,
-        };
+        if (result.count !== 1) {
+          throw new InsufficientStockError(item.productId);
+        }
       }
-      throw err;
+
+      const reservation = await tx.reservation.create({
+        data: {
+          orderId,
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+
+      const eventId = randomUUID();
+      const reservedAt = new Date().toISOString();
+
+      await tx.outboxEvent.create({
+        data: {
+          id: eventId,
+          routingKey: 'inventory.reserved',
+          payload: {
+            eventId,
+            orderId,
+            reservationId: reservation.id,
+            items,
+            totalAmount,
+            currency,
+            reservedAt,
+          },
+        },
+      });
+
+      return {
+        success: true,
+        reservationId: reservation.id,
+      };
+    });
+  } catch (err) {
+    if (err instanceof InsufficientStockError) {
+      // The stock transaction has rolled back. Save the failure event
+      // separately so the outbox relay can publish it later.
+      const eventId = randomUUID();
+      const failedAt = new Date().toISOString();
+      const reason = `Insufficient stock for product ${err.productId}`;
+
+      await this.prisma.outboxEvent.create({
+        data: {
+          id: eventId,
+          routingKey: 'inventory.failed',
+          payload: {
+            eventId,
+            orderId,
+            reason,
+            failedAt,
+          },
+        },
+      });
+
+      return { success: false, reason };
     }
-    // }
+
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === 'P2002'
+    ) {
+      this.logger.warn(`Order ${orderId} was already reserved`);
+      return { block: true };
+    }
+
+    throw err;
   }
+}
 
   async findReservationByOrderId(orderId: string) {
     return this.prisma.reservation.findUnique({ where: { orderId } });
   }
 
-  async releaseReservation(orderId: string) {
-    const reservation = await this.prisma.reservation.findUnique({
+
+async releaseReservation(orderId: string) {
+  return this.prisma.$transaction(async (tx) => {
+    const reservation = await tx.reservation.findUnique({
       where: { orderId },
-      include: {
-        items: true,
-      },
+      include: { items: true },
     });
 
     if (!reservation) {
       throw new NotFoundException(
-        `there is no reservation for this ${orderId}`,
+        `There is no reservation for order ${orderId}`,
       );
     }
-    const items = reservation.items as OrderItem[];
 
-    const released = await this.prisma.$transaction(async (tx) => {
-      for (const item of items) {
-        await tx.inventory.update({
-          where: { productId: item.productId },
-          data: { availableStock: { increment: item.quantity } },
-        });
-      }
-      await tx.reservation.updateMany({
-        where: { id: reservation.id, status: ReservationStatus.RESERVED },
-        data: { status: ReservationStatus.RELEASED },
-      });
-      return true;
+    // Claim the release first. Only one transaction can release it.
+    const result = await tx.reservation.updateMany({
+      where: {
+        id: reservation.id,
+        status: ReservationStatus.RESERVED,
+      },
+      data: {
+        status: ReservationStatus.RELEASED,
+      },
     });
 
-    if (!released) {
+    if (result.count === 0) {
       this.logger.warn(
-        `Reservation for order ${orderId} already released — ignoring duplicate`,
+        `Reservation for order ${orderId} is not RESERVED; ignoring duplicate release`,
       );
-      return;
+
+      return { success: false, reason: 'Already released or not reserved' };
     }
 
-    this.rabbitMQService.publish('inventory.released', {
-      eventId: crypto.randomUUID(),
-      orderId: reservation.orderId,
-      releasedAt: new Date().toISOString(),
+    // Restore stock only after successfully changing the reservation status.
+    for (const item of reservation.items) {
+      await tx.inventory.update({
+        where: { productId: item.productId },
+        data: {
+          availableStock: { increment: item.quantity },
+        },
+      });
+    }
+
+    // Save the event in the SAME transaction as the stock and status changes.
+    const eventId = randomUUID();
+    const releasedAt = new Date().toISOString();
+
+    await tx.outboxEvent.create({
+      data: {
+        id: eventId,
+        routingKey: 'inventory.released',
+        payload: {
+          eventId,
+          orderId,
+          reservationId: reservation.id,
+          releasedAt,
+        },
+      },
     });
-  }
+
+    return { success: true };
+  });
+}
+
 }

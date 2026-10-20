@@ -6,6 +6,7 @@ import { LoggerModule } from './shared/logger/logger.module';
 import { RabbitMQModule } from './shared/rabbitMQ/rabbitmq.module';
 import { Inventorymodule } from './inventory/inventory.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { OutboxModule } from './shared/outbox/outbox.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     LoggerModule,
     RabbitMQModule,
     Inventorymodule,
+    OutboxModule
 
   ],
   controllers: [AppController],

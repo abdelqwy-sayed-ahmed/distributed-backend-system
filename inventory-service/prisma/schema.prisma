@@ -44,3 +44,13 @@ model ReservationItem {
   @@unique([reservationId, productId])
   @@index([productId])
 }
+
+model OutboxEvent {
+  id          String    @id   //the eventId
+  routingKey  String
+  payload     Json
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  @@index([publishedAt, createdAt])
+}
