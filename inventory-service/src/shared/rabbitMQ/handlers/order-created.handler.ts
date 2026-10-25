@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderCreatedPayload } from '../../types/inventory.type';
 import { InventoryService } from '../../../inventory/inventory.service';
+import { RabbitMQService } from '../rabbitmq.service';
+import * as amqp from 'amqplib'
 
 @Injectable()
 export class OrderCreatedHandler {
@@ -8,10 +10,17 @@ export class OrderCreatedHandler {
 
   constructor(
     private readonly inventoryService: InventoryService,
+    private readonly rabbitMQService:RabbitMQService
   ) {}
 
-  async handle(payload: OrderCreatedPayload): Promise<void> {
-    const result = await this.inventoryService.reserveStock(payload);
+  async handle(
+    payload: OrderCreatedPayload,
+
+  ): Promise<void> {
+        // to test DLQ use this line
+        // throw new Error('TEST: Simulating inventory processing failure');
+
+      const result = await this.inventoryService.reserveStock(payload);
 
     if (result.block ) {
       this.logger.warn(
@@ -31,6 +40,6 @@ export class OrderCreatedHandler {
       `Reservation failed for order ${payload.orderId}: ${result.reason}`,
     );
 
-    
-  }
+  
+}
 }

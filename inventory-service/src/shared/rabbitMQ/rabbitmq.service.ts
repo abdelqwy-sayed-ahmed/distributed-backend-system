@@ -6,8 +6,15 @@ import {
 } from '@nestjs/common';
 import * as amqp from 'amqplib';
 import { randomUUID } from 'node:crypto';
+
 const EXCHANGE = 'commerce_events_exchange';
-const RECONNECT_DELAY_MS = 10000;
+const RECONNECT_DELAY_MS = 5000;
+
+const RETRY_DELAYS_MS = [
+  5000,   // Retry 1: 5 seconds
+  30000,  // Retry 2: 30 seconds
+  120000, // Retry 3: 2 minutes
+];
 
 type SetupCallback = () => Promise<void>;
 
@@ -58,6 +65,7 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 
         this.connection = null;
         this.channel = null;
+        this.returned.clear();
 
         if (!this.closing) {
           this.logger.warn(
@@ -67,8 +75,9 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
         }
       });
 
-      const channel = await connection.createChannel();
-      this.channel = await this.connection.createConfirmChannel();
+      const channel = await connection.createConfirmChannel();
+      this.channel = channel;
+
       this.channel.on('return', (msg) => {
         const messageId = msg.properties.messageId;
 
@@ -79,6 +88,21 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(
           `Unroutable message: ${messageId}, routing key: ${msg.fields.routingKey}`,
         );
+      });
+
+      channel.on('error', (err) => {
+        this.logger.error(`RabbitMQ channel error: ${err.message}`);
+      });
+
+      channel.on('close', () => {
+        if (this.channel !== channel) return;
+
+        this.channel = null;
+
+        if (!this.closing) {
+          this.logger.warn('RabbitMQ channel closed. Reconnecting...');
+          this.scheduleReconnect();
+        }
       });
 
       await channel.assertExchange(EXCHANGE, 'topic', { durable: true });
@@ -97,6 +121,7 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
       const connection = this.connection;
       this.connection = null;
       this.channel = null;
+      this.returned.clear();
 
       if (connection) {
         try {
@@ -140,6 +165,26 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
       await channel.bindQueue(queue, EXCHANGE, key);
       this.logger.log(`Bound ${key} to ${queue}`);
     }
+
+    // Each retry queue delays the message, then dead-letters it back
+    // to this specific main queue. The default exchange avoids topic fan-out.
+    for (const [index, ttl] of RETRY_DELAYS_MS.entries()) {
+      const retryQueue = `${queue}.retry.${index + 1}`;
+      await channel.assertQueue(retryQueue, {
+        durable: true,
+        arguments: {
+          'x-message-ttl': ttl,
+          'x-dead-letter-exchange': '',
+          'x-dead-letter-routing-key': queue,
+        },
+      });
+       this.logger.debug(
+        `Retry queue ready: ${retryQueue}, TTL=${ttl}ms`,
+      );
+    }
+
+    // Failed messages are kept here for investigation and manual replay.
+    await channel.assertQueue(`${queue}.dlq`, { durable: true });
   }
 
   publish(
@@ -162,16 +207,136 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
           contentType: 'application/json',
         },
         (err: any) => {
-          if (err) return reject(err); // broker nack, or channel closed while waiting
+          if (err) {
+            this.returned.delete(messageId);
+            reject(err);
+            return;
+          }
+
+          // A publisher confirm can succeed even when no queue matched.
+          // With mandatory=true, RabbitMQ returns unroutable messages.
           if (this.returned.delete(messageId)) {
-            return reject(
+            reject(
               new Error(`Unroutable message for routing key ${routingKey}`),
             );
+            return;
           }
-          resolve(); // the broker accepted it AND at least one queue received it
+
+          resolve();
         },
       );
     });
+  }
+
+  private sendToQueue(
+    queue: string,
+    msg: amqp.ConsumeMessage,
+    headers: Record<string, any>,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const channel = this.channel;
+
+      if (!channel) {
+        reject(new Error('RabbitMQ channel not ready'));
+        return;
+      }
+
+      // A separate ID identifies this transfer so a returned copy can
+      // be matched without confusing it with another in-flight publish.
+      const transferId = randomUUID();
+
+      const onReturn = (returnedMsg: amqp.Message) => {
+        if (returnedMsg.properties.messageId === transferId) {
+          this.returned.add(transferId);
+        }
+      };
+
+      // The regular return listener above tracks message IDs globally.
+      // Use the transfer ID for the replacement copy.
+      channel.publish(
+        '',
+        queue,
+        msg.content,
+        {
+          persistent: true,
+          mandatory: true,
+          messageId: transferId,
+          correlationId: transferId,
+          contentType: msg.properties.contentType ?? 'application/json',
+          headers: {
+            ...headers,
+            'x-transfer-id': transferId,
+          },
+        },
+        (err) => {
+          channel.removeListener('return', onReturn);
+
+          if (err) {
+            this.returned.delete(transferId);
+            reject(err);
+            return;
+          }
+
+          if (this.returned.delete(transferId)) {
+            reject(new Error(`Could not route message to ${queue}`));
+            return;
+          }
+
+          resolve();
+        },
+      );
+
+      // Avoid unused event handler state; the global return listener
+      // above already records transferId in the returned set.
+      void onReturn;
+    });
+  }
+
+  async retryOrDeadLetter(
+    queue: string,
+    msg: amqp.ConsumeMessage,
+    err: any,
+    ack: () => void,
+    nack: () => void,
+    fatal = false,
+  ): Promise<void> {
+    const channel = this.channel;
+    if (!channel) throw new Error('RabbitMQ channel not ready');
+
+    const headers = msg.properties.headers ?? {};
+    const attempt = Number(headers['x-attempt'] ?? 0);
+
+    // Permanent failures skip retries. Transient failures get three
+    // delayed retries, then go to the DLQ for investigation.
+    const target =
+      fatal || attempt >= RETRY_DELAYS_MS.length
+        ? `${queue}.dlq`
+        : `${queue}.retry.${attempt + 1}`;
+
+    const messageId = msg.properties.messageId ?? randomUUID();
+
+    await this.sendToQueue(target, msg, {
+      ...headers,
+      'x-attempt': attempt + 1,
+      'x-original-routing-key':
+        headers['x-original-routing-key'] ?? msg.fields.routingKey,
+      'x-last-error': err.message.slice(0, 500),
+      'x-original-message-id': messageId,
+    });
+
+    // ACK the original only after RabbitMQ confirms the replacement copy.
+    channel.ack(msg);
+
+    if (target.endsWith('.dlq')) {
+      this.logger.error(
+        `Message moved to DLQ "${target}" after ${attempt} retries. ` +
+          `Reason: ${err.message}`,
+      );
+    } else {
+      this.logger.warn(
+        `Message moved to retry queue "${target}". Attempt ${attempt + 1}.`,
+      );
+    }
   }
 
   async consume(
@@ -227,5 +392,6 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 
     this.channel = null;
     this.connection = null;
+    this.returned.clear();
   }
 }
