@@ -94,9 +94,9 @@ export class OutboxRelayService implements OnModuleInit, OnModuleDestroy {
         for (const row of rows) {
           try {
             await this.rabbitMQService.publish(
+              //for theDLQ messageId = eventId & correlationId = orderId
               row.routingKey,
-              row.payload as object,
-              row.id,
+              row.payload as any,
             );
 
             await tx.outboxEvent.update({

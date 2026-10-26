@@ -189,8 +189,7 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 
   publish(
     routingKey: string,
-    payload: object,
-    messageId: string = randomUUID(),
+    payload: { eventId: string; orderId: string } & Record<string, any>,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.channel) {
@@ -203,94 +202,62 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
         {
           persistent: true,
           mandatory: true,
-          messageId,
+          messageId: payload.eventId,
+          correlationId: payload.orderId,
           contentType: 'application/json',
         },
         (err: any) => {
           if (err) {
-            this.returned.delete(messageId);
             reject(err);
             return;
           }
-
-          // A publisher confirm can succeed even when no queue matched.
-          // With mandatory=true, RabbitMQ returns unroutable messages.
-          if (this.returned.delete(messageId)) {
-            reject(
-              new Error(`Unroutable message for routing key ${routingKey}`),
-            );
-            return;
-          }
-
           resolve();
         },
       );
     });
   }
+
+  //messageId stays equal to the original eventId.
+  //correlationId stays equal to the original orderId.
+  //x-attempt increases with every retry.
+  //x-original-routing-key preserves the original event name.
 
   private sendToQueue(
-    queue: string,
-    msg: amqp.ConsumeMessage,
-    headers: Record<string, any>,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const channel = this.channel;
+  queue: string,
+  msg: amqp.ConsumeMessage,
+  headers: Record<string, any>,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const channel = this.channel;
 
-      if (!channel) {
-        reject(new Error('RabbitMQ channel not ready'));
-        return;
-      }
+    if (!channel) {
+      reject(new Error('RabbitMQ channel not ready'));
+      return;
+    }
 
-      // A separate ID identifies this transfer so a returned copy can
-      // be matched without confusing it with another in-flight publish.
-      const transferId = randomUUID();
-
-      const onReturn = (returnedMsg: amqp.Message) => {
-        if (returnedMsg.properties.messageId === transferId) {
-          this.returned.add(transferId);
+    channel.sendToQueue(
+      queue,
+      msg.content,
+      {
+        persistent: true,
+        mandatory: true,
+        messageId: msg.properties.messageId,
+        correlationId: msg.properties.correlationId,
+        contentType:
+          msg.properties.contentType ?? 'application/json',
+        headers,
+      },
+      (err) => {
+        if (err) {
+          reject(err);
+          return;
         }
-      };
 
-      // The regular return listener above tracks message IDs globally.
-      // Use the transfer ID for the replacement copy.
-      channel.publish(
-        '',
-        queue,
-        msg.content,
-        {
-          persistent: true,
-          mandatory: true,
-          messageId: transferId,
-          correlationId: transferId,
-          contentType: msg.properties.contentType ?? 'application/json',
-          headers: {
-            ...headers,
-            'x-transfer-id': transferId,
-          },
-        },
-        (err) => {
-          channel.removeListener('return', onReturn);
-
-          if (err) {
-            this.returned.delete(transferId);
-            reject(err);
-            return;
-          }
-
-          if (this.returned.delete(transferId)) {
-            reject(new Error(`Could not route message to ${queue}`));
-            return;
-          }
-
-          resolve();
-        },
-      );
-
-      // Avoid unused event handler state; the global return listener
-      // above already records transferId in the returned set.
-      void onReturn;
-    });
-  }
+        resolve();
+      },
+    );
+  });
+}
 
   async retryOrDeadLetter(
     queue: string,
@@ -304,7 +271,7 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
     if (!channel) throw new Error('RabbitMQ channel not ready');
 
     const headers = msg.properties.headers ?? {};
-    const attempt = Number(headers['x-attempt'] ?? 0);
+    const attempt = Number(headers['x-attempt'] ?? 0); //Records the retry attempt
 
     // Permanent failures skip retries. Transient failures get three
     // delayed retries, then go to the DLQ for investigation.
@@ -313,15 +280,13 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
         ? `${queue}.dlq`
         : `${queue}.retry.${attempt + 1}`;
 
-    const messageId = msg.properties.messageId ?? randomUUID();
 
     await this.sendToQueue(target, msg, {
       ...headers,
       'x-attempt': attempt + 1,
-      'x-original-routing-key':
+      'x-original-routing-key': 
         headers['x-original-routing-key'] ?? msg.fields.routingKey,
       'x-last-error': err.message.slice(0, 500),
-      'x-original-message-id': messageId,
     });
 
     // ACK the original only after RabbitMQ confirms the replacement copy.

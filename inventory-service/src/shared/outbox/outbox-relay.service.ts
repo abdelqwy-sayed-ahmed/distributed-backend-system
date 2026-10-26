@@ -95,8 +95,8 @@ export class OutboxRelayService implements OnModuleInit, OnModuleDestroy {
           try {
             await this.rabbitMQService.publish(
               row.routingKey,
-              row.payload as object,
-              row.id,
+              row.payload as any,
+             
             );
 
             await tx.outboxEvent.update({
