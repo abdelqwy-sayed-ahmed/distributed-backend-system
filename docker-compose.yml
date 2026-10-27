@@ -1,16 +1,16 @@
 version: '3.8'
 
 services:
-  # order-db:
-  #   image: postgres:16
-  #   environment:
-  #     POSTGRES_USER: order_user
-  #     POSTGRES_PASSWORD: order_pass
-  #     POSTGRES_DB: order_db
-  #   ports:
-  #     - "5433:5432"
-  #   volumes:
-  #     - order_db_data:/var/lib/postgresql/data
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: order_user
+      POSTGRES_PASSWORD: order_pass
+      POSTGRES_DB: order_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
 
   inventory-db:
     image: postgres:16
@@ -23,16 +23,16 @@ services:
     volumes:
       - inventory_db_data:/var/lib/postgresql/data
 
-  # payment-db:
-  #   image: postgres:16
-  #   environment:
-  #     POSTGRES_USER: payment_user
-  #     POSTGRES_PASSWORD: payment_pass
-  #     POSTGRES_DB: payment_db
-  #   ports:
-  #     - "5435:5432"
-  #   volumes:
-  #     - payment_db_data:/var/lib/postgresql/data
+  payment-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: payment_user
+      POSTGRES_PASSWORD: payment_pass
+      POSTGRES_DB: payment_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - payment_db_data:/var/lib/postgresql/data
 
   product-db:
     image: postgres:16
@@ -56,16 +56,18 @@ services:
       timeout: 5s
       retries: 5
 
-  # order-service:
-  #   build: ./order-service
-  #   env_file: ./order-service/.env.docker
-  #   ports:
-  #     - "3001:3000"
-  #   depends_on:
-  #     - order-db
-  #     - rabbitmq
+  order-service:
+    profiles: ["app"] #docker compose up never starts app services unless you explicitly ask
+    build: ./order-service
+    env_file: ./order-service/.env.docker
+    ports:
+      - "3001:3000"
+    depends_on:
+      - order-db
+      - rabbitmq
 
   inventory-service:
+    profiles: ["app"] 
     build: ./inventory-service
     env_file: ./inventory-service/.env.docker
     ports:
@@ -74,17 +76,19 @@ services:
       - inventory-db
       - rabbitmq
 
-  # payment-service:
-  #   build: ./payment-service
-  #   env_file: ./payment-service/.env.docker
-  #   ports:
-  #     - "3003:3000"
-  #   depends_on:
-  #     - payment-db
-  #     - rabbitmq
+  payment-service:
+    profiles: ["app"] 
+    build: ./payment-service
+    env_file: ./payment-service/.env.docker
+    ports:
+      - "3003:3000"
+    depends_on:
+      - payment-db
+      - rabbitmq
 
   product-service:
     build: ./product-service
+    profiles: ["app"]  
     env_file: ./product-service/.env.docker
     ports:
       - "3004:3000"
@@ -93,7 +97,7 @@ services:
       - rabbitmq
 
 volumes:
-  # order_db_data:
+  order_db_data:
   inventory_db_data:
-  # payment_db_data:
+  payment_db_data:
   product_db_data:
