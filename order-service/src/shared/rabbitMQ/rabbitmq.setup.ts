@@ -7,9 +7,7 @@ import { InventoryFailedHandler } from './handlers/inventory-failed.handler';
 import { InventoryReleasedHandler } from './handlers/inventory-released.handler';
 import { PaymentSuccededhandler } from './handlers/payment-succeeded.handler';
 
-type EventHandler = (
-  payload: any,
-) => Promise<void>;
+type EventHandler = (payload: any) => Promise<void>;
 
 @Injectable()
 export class RabbitMQSetup implements OnModuleInit {
@@ -51,55 +49,52 @@ export class RabbitMQSetup implements OnModuleInit {
       'inventory.reserved',
     ]);
 
-       await this.rabbitMQService.consume(
+    await this.rabbitMQService.consume(
       queue,
       async (msg: ConsumeMessage, ack, nack) => {
         const headers = msg.properties.headers ?? {};
 
         const routingKey =
           headers['x-original-routing-key'] ?? msg.fields.routingKey;
-       
+
         const handler = this.handlers.get(routingKey);
 
-        
-      if (!handler) {
-        const error = new Error(
-          `No handler registered for routing key "${routingKey}"`,
-        );
-
-        this.logger.error(
-          `${error.message}. Sending message to DLQ.`,
-        );
-
-        try {
-          await this.rabbitMQService.retryOrDeadLetter(
-            queue,
-            msg,
-            error,
-            ack,
-            nack,
-            true, // Fatal: send directly to DLQ.
-          );
-        } catch (retryError: unknown) {
-          this.logger.error(
-            `Failed to send message to DLQ: ${
-              retryError instanceof Error
-                ? retryError.message
-                : String(retryError)
-            }`,
+        if (!handler) {
+          const error = new Error(
+            `No handler registered for routing key "${routingKey}"`,
           );
 
-          // The original has not been acknowledged.
-          // Requeue it if the channel is still usable.
-          nack();
+          this.logger.error(`${error.message}. Sending message to DLQ.`);
+
+          try {
+            await this.rabbitMQService.retryOrDeadLetter(
+              queue,
+              msg,
+              error,
+              ack,
+              nack,
+              true, // Fatal: send directly to DLQ.
+            );
+          } catch (retryError: unknown) {
+            this.logger.error(
+              `Failed to send message to DLQ: ${
+                retryError instanceof Error
+                  ? retryError.message
+                  : String(retryError)
+              }`,
+            );
+
+            // The original has not been acknowledged.
+            // Requeue it if the channel is still usable.
+            nack();
+          }
+
+          return;
         }
 
-        return;
-      }
-
-      this.logger.debug(
-        `Handler found for "${routingKey}". Starting processing.`,
-      );
+        this.logger.debug(
+          `Handler found for "${routingKey}". Starting processing.`,
+        );
 
         try {
           const payload = JSON.parse(msg.content.toString());
@@ -107,8 +102,8 @@ export class RabbitMQSetup implements OnModuleInit {
           ack();
 
           this.logger.debug(
-          `Message processed and ACKed: routingKey=${routingKey}`,
-        );
+            `Message processed and ACKed: routingKey=${routingKey}`,
+          );
         } catch (err: unknown) {
           const error = err instanceof Error ? err : new Error(String(err));
 
@@ -117,30 +112,30 @@ export class RabbitMQSetup implements OnModuleInit {
           );
 
           // retryOrDeadLetter publishes the replacement, then ACKs the original.
-           try {
-          await this.rabbitMQService.retryOrDeadLetter(
-            queue,
-            msg,
-            error,
-            ack,
-            nack,
-          );
-        } catch (retryError: unknown) {
-          this.logger.error(
-            `Retry/DLQ publishing failed: ${
-              retryError instanceof Error
-                ? retryError.message
-                : String(retryError)
-            }`,
-          );
+          try {
+            await this.rabbitMQService.retryOrDeadLetter(
+              queue,
+              msg,
+              error,
+              ack,
+              nack,
+            );
+          } catch (retryError: unknown) {
+            this.logger.error(
+              `Retry/DLQ publishing failed: ${
+                retryError instanceof Error
+                  ? retryError.message
+                  : String(retryError)
+              }`,
+            );
 
-          // Do not ACK the original if the replacement was not confirmed.
-          nack();
+            // Do not ACK the original if the replacement was not confirmed.
+            nack();
+          }
         }
-      }
-    },
-  );
+      },
+    );
 
-    this.logger.log('Order Service consumer is ready');
+    this.logger.log(`Consumer ready for queue ${queue}`);
   }
 }

@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderCreatedPayload } from '../../types/inventory.type';
 import { InventoryService } from '../../../inventory/inventory.service';
-import { RabbitMQService } from '../rabbitmq.service';
-import * as amqp from 'amqplib'
 
 @Injectable()
 export class OrderCreatedHandler {
@@ -10,7 +8,6 @@ export class OrderCreatedHandler {
 
   constructor(
     private readonly inventoryService: InventoryService,
-    private readonly rabbitMQService:RabbitMQService
   ) {}
 
   async handle(

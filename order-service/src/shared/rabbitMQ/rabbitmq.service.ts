@@ -178,7 +178,7 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
           'x-dead-letter-routing-key': queue,
         },
       });
-       this.logger.debug(
+       this.logger.log(
         `Retry queue ready: ${retryQueue}, TTL=${ttl}ms`,
       );
     }
