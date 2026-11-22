@@ -1,0 +1,161 @@
+
+services:
+
+  # ==========================================
+  # Databases
+  # ==========================================
+
+  order-db:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${ORDER_DB_USER}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
+      POSTGRES_DB: ${ORDER_DB_NAME}
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDER_DB_USER} -d ${ORDER_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  inventory-db:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${INVENTORY_DB_USER}
+      POSTGRES_PASSWORD: ${INVENTORY_DB_PASSWORD}
+      POSTGRES_DB: ${INVENTORY_DB_NAME}
+    volumes:
+      - inventory_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${INVENTORY_DB_USER} -d ${INVENTORY_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  payment-db:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PAYMENT_DB_USER}
+      POSTGRES_PASSWORD: ${PAYMENT_DB_PASSWORD}
+      POSTGRES_DB: ${PAYMENT_DB_NAME}
+    volumes:
+      - payment_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PAYMENT_DB_USER} -d ${PAYMENT_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  product-db:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PRODUCT_DB_USER}
+      POSTGRES_PASSWORD: ${PRODUCT_DB_PASSWORD}
+      POSTGRES_DB: ${PRODUCT_DB_NAME}
+    volumes:
+      - product_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PRODUCT_DB_USER} -d ${PRODUCT_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ==========================================
+  # Message Broker
+  # ==========================================
+
+  rabbitmq:
+    image: ${RABBITMQ_IMAGE}
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "${RABBITMQ_MANAGEMENT_HOST_PORT}:${RABBITMQ_MANAGEMENT_CONTAINER_PORT}"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ==========================================
+  # Application Services
+  # ==========================================
+
+  order-service:
+    image: ${ORDER_SERVICE_IMAGE_URI}:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${ORDER_DB_USER}:${ORDER_DB_PASSWORD}@${ORDER_DB_SERVICE_NAME}:${DB_CONTAINER_PORT}/${ORDER_DB_NAME}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_SERVICE_NAME}:${RABBITMQ_CONTAINER_PORT}
+      PORT: ${APP_CONTAINER_PORT}
+    ports:
+      - "${ORDER_SERVICE_HOST_PORT}:${APP_CONTAINER_PORT}"
+    depends_on:
+      order-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  inventory-service:
+    image: ${INVENTORY_SERVICE_IMAGE_URI}:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${INVENTORY_DB_USER}:${INVENTORY_DB_PASSWORD}@${INVENTORY_DB_SERVICE_NAME}:${DB_CONTAINER_PORT}/${INVENTORY_DB_NAME}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_SERVICE_NAME}:${RABBITMQ_CONTAINER_PORT}
+      PORT: ${APP_CONTAINER_PORT}
+    ports:
+      - "${INVENTORY_SERVICE_HOST_PORT}:${APP_CONTAINER_PORT}"
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  payment-service:
+    image: ${PAYMENT_SERVICE_IMAGE_URI}:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${PAYMENT_DB_USER}:${PAYMENT_DB_PASSWORD}@${PAYMENT_DB_SERVICE_NAME}:${DB_CONTAINER_PORT}/${PAYMENT_DB_NAME}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_SERVICE_NAME}:${RABBITMQ_CONTAINER_PORT}
+      PORT: ${APP_CONTAINER_PORT}
+    ports:
+      - "${PAYMENT_SERVICE_HOST_PORT}:${APP_CONTAINER_PORT}"
+    depends_on:
+      payment-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  product-service:
+    image: ${PRODUCT_SERVICE_IMAGE_URI}:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${PRODUCT_DB_USER}:${PRODUCT_DB_PASSWORD}@${PRODUCT_DB_SERVICE_NAME}:${DB_CONTAINER_PORT}/${PRODUCT_DB_NAME}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_SERVICE_NAME}:${RABBITMQ_CONTAINER_PORT}
+      PORT: ${APP_CONTAINER_PORT}
+    ports:
+      - "${PRODUCT_SERVICE_HOST_PORT}:${APP_CONTAINER_PORT}"
+    depends_on:
+      product-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+# ==========================================
+# Persistent Volumes
+# ==========================================
+
+volumes:
+  order_db_data:
+  inventory_db_data:
+  payment_db_data:
+  product_db_data:
+  rabbitmq_data:
